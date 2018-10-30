@@ -65,7 +65,7 @@ class wdfReader(object):
                 print("Failed to get the block information")
         # TODO
         # self.origin_list_info = self.get_origin_list_info()
-
+        
     def _read_int16(self):
         return struct.unpack(s_int16, self.file_obj.read(l_int16))[0]
     def _read_int32(self):
@@ -92,28 +92,28 @@ class wdfReader(object):
         
         # The keys from the header
         self.file_obj.seek(60)
-        self.point_per_spectrum = self._read_int32()
-        self.capacity = self._read_int64()
-        self.count = self._read_int64()
+        self.point_per_spectrum = self._read_int32() # this is the number of differents wavelengths at which each spectra was recorded
+        self.capacity = self._read_int64() # this is the number of points at which we recorded the spectra (points in a map scan, for exemple)
+        self.count = self._read_int64() # this seems to be the same as above?
         self.accumulation_count = self._read_int32()
         self.ylist_length = self._read_int32()
-        self.xlist_length = self._read_int32()
-        self.data_origin_count = self._read_int32()
-        self.application_name = self._read_utf8(24)
+        self.xlist_length = self._read_int32() # this seems to be the same as .point_per_spectrum ?
+        self.data_origin_count = self._read_int32() # no idea what this is
+        self.application_name = self._read_utf8(24) # Wire + bunch of blanks
         for i in range(4):
             self.application_version[i] = self._read_int16()
         # TODO: change the types to string
-        self.scan_type = self._read_int32()
-        self.measurement_type = self._read_int32()
+        self.scan_type = self._read_int32() # it seems to give 7 for the map scan
+        self.measurement_type = self._read_int32() # it gives 3 for my map scan
         # For the units
         # TODO: change to string
         self.file_obj.seek(152)
-        self.spectral_units = self._read_int32()
-        self.laser_wavenumber = self._read_float()
+        self.spectral_units = self._read_int32() # this gives 6 form my file, so it should correspond to cm-1 ?
+        self.laser_wavenumber = self._read_float() # doing (10 000 000 / laser_wavenumber) should give you the wavelength in nm
         # Username and title
         self.file_obj.seek(208)
-        self.username = self._read_utf8(32)
-        self.title = self._read_utf8(160)
+        self.username = self._read_utf8(32) # windows session login (one should strip the blanks here)
+        self.title = self._read_utf8(160) # StreamHR image acquisition (strip the blanks)
 
     # locate the data block offset with the corresponding block name
     def locate_block(self, block_name):
@@ -122,6 +122,7 @@ class wdfReader(object):
         else:
             # find the block by increment in block size
             # exhaustive but no need to worry
+			# so it basically starts from the beggining and goes block by block, reading the block name and size, then moving the cursor at the end of the block, then reading the name of the next block, than it's size etc.
             curr_name = None
             curr_pos = 0
             next_pos = curr_pos
@@ -133,7 +134,7 @@ class wdfReader(object):
                 size = self._read_int64()
                 next_pos += size
                 self.file_obj.seek(next_pos)
-                # print(curr_name, curr_pos, uid, size)
+                print(curr_name, curr_pos, uid, size)
             # found the id
             if curr_name == block_name:
                 return (curr_pos, size)
@@ -198,11 +199,22 @@ class wdfReader(object):
         n_row = end - start + 1
         self.file_obj.seek(pos_start)
         spectra_data = numpy.fromfile(self.file_obj, dtype="float32", count=n_row*self.point_per_spectrum)
-        if len(spectra_data.shape) == 1:
-            # The spectra is only 1D array
-            return spectra_data
-        else:
-            # Make 2D array
-            spectra_data = spectra_data.reshape(n_row, spectra_data.size // n_row)
-            return spectra_data
+        # The spectra is only 1D array
+        # I beleive the spectra read would always appear as 1D array,  nevertheless reshaping it in following manner should turn out right whatever the size
+        spectra_data = spectra_data.reshape(n_row, -1) # reshaping
+        return spectra_data
+        
     
+"""
+when using this, you should first run the script
+than get the object by running kiko = wdfReader(./filename)
+then perhaps spektar = wdfReader.get_spectra(kiko)
+then you can reshape the spectre by running : novi = spektar.reshape((-1, len(xdata)))
+where xdata was obteined by xdata = wdfReader.get_xdata(kiko)
+
+wdfReader.locate_block(kiko,'WMAP') works as well
+
+script reads the block name as 4 bytes ascii, than 4 bytes for the uid (32bit integer), 
+then comes the size of the block as unsigned 64bit integer
+
+"""
